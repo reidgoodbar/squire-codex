@@ -10,14 +10,15 @@ validation, or replay edits.
 
 ## User Experience
 
-Install Squire:
+Install Squire and the matching `squire-codex` driver:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/reidgoodbar/squire/main/install.sh | bash
 ```
 
-Install and authenticate Codex normally; Squire does not own OpenAI login or
-model configuration.
+Squire does not own OpenAI login or model configuration. The installed
+`squire-codex` binary uses the normal Codex home, so authenticate and configure
+Codex the same way you already would.
 
 Then start Codex through Squire:
 
@@ -25,9 +26,8 @@ Then start Codex through Squire:
 squire-codex
 ```
 
-This is the normal product path. `squire-codex` resolves the installed
-`squire` binary, starts the local Squire bridge, and then launches Codex. When
-the bridge is enabled:
+This is the normal product path. `squire-codex` is the real Codex fork with the
+Squire bridge at the execution boundary. When the bridge is enabled:
 
 - replay hits return exact stdout, stderr, and exit code from Squire;
 - replay misses run through Codex's normal native execution path;

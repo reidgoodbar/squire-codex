@@ -1,0 +1,129 @@
+name: Squire Codex Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag/version, for example v0.7.0-beta.2"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target_os }}/${{ matrix.target_arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target_os: linux
+            target_arch: amd64
+            rust_target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target_os: linux
+            target_arch: arm64
+            rust_target: aarch64-unknown-linux-gnu
+          - runner: macos-13
+            target_os: darwin
+            target_arch: amd64
+            rust_target: x86_64-apple-darwin
+          - runner: macos-14
+            target_os: darwin
+            target_arch: arm64
+            rust_target: aarch64-apple-darwin
+          - runner: windows-latest
+            target_os: windows
+            target_arch: amd64
+            rust_target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: codex-rs
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${VERSION_INPUT}"
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
+          if [[ -z "${version}" ]]; then
+            echo "release version is empty" >&2
+            exit 2
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release artifact
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SQUIRE_CODEX_RELEASE_TARGETS: ${{ matrix.target_os }} ${{ matrix.target_arch }}
+        run: scripts/build_squire_codex_artifacts.sh "${RUNNER_TEMP}/squire-codex-release"
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: squire-codex-${{ matrix.target_os }}-${{ matrix.target_arch }}
+          path: ${{ runner.temp }}/squire-codex-release/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${VERSION_INPUT}"
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz > SHA256SUMS
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS

@@ -1,3 +1,25 @@
+## Squire Codex Fork
+
+This repository publishes `squire-codex`, the real Codex fork used by Squire.
+The normal install path is the Squire installer, which installs both `squire`
+and the matching `squire-codex` driver:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/reidgoodbar/squire/main/install.sh | bash
+```
+
+Start with:
+
+```sh
+squire-codex
+```
+
+The fork keeps the normal Codex tool surface and adds only the Squire execution
+bridge below agent-chosen local commands. See [SQUIRE_CODEX.md](SQUIRE_CODEX.md)
+for fork maintenance and release details.
+
+---
+
 <p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
 <p align="center">
   <img src="https://github.com/openai/codex/blob/main/.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />
