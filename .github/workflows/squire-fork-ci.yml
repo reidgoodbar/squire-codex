@@ -1,0 +1,46 @@
+name: Squire Fork CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, squire-bridge]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bridge:
+    name: Squire bridge checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: codex-rs
+
+      - name: Check portable Squire bridge paths
+        run: |
+          test -f vendor/squire/crates/squire-codex-adapter/src/exec_bridge.rs
+          test -f vendor/squire/crates/squire-codex-adapter/src/unified_exec_bridge.rs
+          test -f vendor/squire/crates/squire-codex-bridge/src/lib.rs
+          ! grep -R '"\\.\\./\\.\\./\\.\\./\\.\\./squire/' codex-rs/core/src
+
+      - name: Format core
+        working-directory: codex-rs
+        run: cargo fmt --check -p codex-core
+
+      - name: Test bridge
+        working-directory: codex-rs
+        run: cargo test -p codex-core squire_bridge --lib
+
+      - name: Build CLI
+        working-directory: codex-rs
+        run: cargo build -p codex-cli --bin codex

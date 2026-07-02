@@ -1,0 +1,88 @@
+name: Squire Upstream Sync
+
+on:
+  schedule:
+    - cron: "17 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Merge upstream OpenAI Codex
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/openai/codex.git
+          git fetch upstream main
+
+      - name: Merge upstream into sync branch
+        id: merge
+        run: |
+          set -euo pipefail
+          git checkout -B squire/upstream-sync origin/main
+          git merge --no-edit upstream/main
+          if git diff --quiet origin/main..HEAD; then
+            echo "No upstream changes to sync."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust
+        if: steps.merge.outputs.has_changes == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        if: steps.merge.outputs.has_changes == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: codex-rs
+
+      - name: Focused Squire checks
+        if: steps.merge.outputs.has_changes == 'true'
+        run: |
+          test -f vendor/squire/crates/squire-codex-adapter/src/exec_bridge.rs
+          test -f vendor/squire/crates/squire-codex-adapter/src/unified_exec_bridge.rs
+          test -f vendor/squire/crates/squire-codex-bridge/src/lib.rs
+          ! grep -R '"\\.\\./\\.\\./\\.\\./\\.\\./squire/' codex-rs/core/src
+          cd codex-rs
+          cargo fmt --check -p codex-core
+          cargo test -p codex-core squire_bridge --lib
+
+      - name: Push sync branch
+        if: steps.merge.outputs.has_changes == 'true'
+        run: git push --force-with-lease origin squire/upstream-sync
+
+      - name: Open or update sync PR
+        if: steps.merge.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          existing="$(gh pr list --head squire/upstream-sync --base main --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" \
+              --title "Sync upstream OpenAI Codex" \
+              --body "Automated merge of openai/codex main into the Squire Codex fork. Focused Squire bridge checks passed."
+          else
+            gh pr create \
+              --base main \
+              --head squire/upstream-sync \
+              --title "Sync upstream OpenAI Codex" \
+              --body "Automated merge of openai/codex main into the Squire Codex fork. Focused Squire bridge checks passed."
+          fi

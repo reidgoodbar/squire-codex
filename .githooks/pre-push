@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if git show-ref --verify --quiet refs/remotes/upstream/main; then
+  if ! git merge-base --is-ancestor upstream/main HEAD; then
+    cat >&2 <<'MSG'
+squire-codex: this branch does not contain the latest fetched upstream/main.
+Run:
+  git fetch upstream main
+  git merge upstream/main
+Then retry the push.
+MSG
+    exit 1
+  fi
+fi
+
+test -f vendor/squire/crates/squire-codex-adapter/src/exec_bridge.rs
+test -f vendor/squire/crates/squire-codex-adapter/src/unified_exec_bridge.rs
+test -f vendor/squire/crates/squire-codex-bridge/src/lib.rs
+! grep -R '"\.\./\.\./\.\./\.\./squire/' codex-rs/core/src
+
+cd codex-rs
+if [ -n "${SQUIRE_CODEX_CARGO_HOME:-}" ]; then
+  export CARGO_HOME="$SQUIRE_CODEX_CARGO_HOME"
+elif [ -z "${CARGO_HOME:-}" ] && [ ! -w "${HOME}/.cargo" ]; then
+  export CARGO_HOME="${TMPDIR:-/tmp}/squire-codex-cargo-home"
+fi
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${SQUIRE_CODEX_CARGO_TARGET_DIR:-${TMPDIR:-/tmp}/squire-codex-target}}"
+cargo fmt --check -p codex-core
+cargo test -p codex-core squire_bridge --lib

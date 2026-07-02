@@ -49,6 +49,8 @@ mod head_tail_buffer;
 mod process;
 mod process_manager;
 mod process_state;
+#[path = "../../../../vendor/squire/crates/squire-codex-adapter/src/unified_exec_bridge.rs"]
+mod squire_bridge;
 
 pub(crate) fn set_deterministic_process_ids_for_tests(enabled: bool) {
     process_manager::set_deterministic_process_ids_for_tests(enabled);

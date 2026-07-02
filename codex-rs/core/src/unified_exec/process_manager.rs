@@ -56,6 +56,7 @@ use crate::unified_exec::process::OutputBuffer;
 use crate::unified_exec::process::OutputHandles;
 use crate::unified_exec::process::SpawnLifecycleHandle;
 use crate::unified_exec::process::UnifiedExecProcess;
+use crate::unified_exec::squire_bridge;
 use codex_network_proxy::NetworkProxy;
 use codex_protocol::config_types::ShellEnvironmentPolicy;
 use codex_protocol::error::CodexErr;
@@ -411,6 +412,11 @@ impl UnifiedExecProcessManager {
         context: &UnifiedExecContext,
     ) -> Result<ExecCommandToolOutput, UnifiedExecError> {
         let cwd = request.cwd.clone();
+        if let Some(output) =
+            squire_bridge::try_exec_command(self, &request, cwd.clone(), context).await?
+        {
+            return Ok(output);
+        }
         let process = self
             .open_session_with_sandbox(&request, cwd.clone(), context)
             .await;

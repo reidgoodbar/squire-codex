@@ -55,6 +55,11 @@ use codex_utils_path_uri::PathUri;
 use codex_utils_pty::DEFAULT_OUTPUT_BYTES_CAP;
 use codex_utils_pty::process_group::kill_child_process_group;
 
+#[path = "../../../vendor/squire/crates/squire-codex-adapter/src/exec_bridge.rs"]
+pub(crate) mod squire_bridge;
+#[path = "../../../vendor/squire/crates/squire-codex-bridge/src/lib.rs"]
+pub(crate) mod squire_codex_bridge;
+
 pub const DEFAULT_EXEC_COMMAND_TIMEOUT_MS: u64 = 10_000;
 
 // Hardcode these since it does not seem worth including the libc crate just
@@ -935,6 +940,14 @@ async fn exec(
             "command args are empty",
         ))
     })?;
+    if let Some(output) =
+        squire_bridge::try_exec(&command, &cwd, &env, capture_policy, stdout_stream.clone()).await
+    {
+        if let Some(after_spawn) = after_spawn {
+            after_spawn();
+        }
+        return Ok(output);
+    }
     let arg0_ref = arg0.as_deref();
     let child = spawn_child_async(SpawnChildRequest {
         program: PathBuf::from(program),
