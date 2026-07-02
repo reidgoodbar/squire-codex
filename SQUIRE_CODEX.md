@@ -13,7 +13,7 @@ validation, or replay edits.
 Install Squire:
 
 ```sh
-curl -fsSL https://squire.run/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/reidgoodbar/squire/main/install.sh | bash
 ```
 
 Install and authenticate Codex normally; Squire does not own OpenAI login or
