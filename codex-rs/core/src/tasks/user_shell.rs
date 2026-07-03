@@ -235,9 +235,27 @@ pub(crate) async fn execute_user_shell_command(
         tx_event: session.get_tx_event(),
     });
 
-    let exec_result = execute_exec_request(exec_env, stdout_stream, /*after_spawn*/ None)
-        .or_cancel(&cancellation_token)
-        .await;
+    let replay_start = std::time::Instant::now();
+    let exec_result = if let Some(replay) =
+        crate::exec::squire_bridge::try_replay_shell_command(&raw_command, &cwd, &exec_env.env)
+            .await
+    {
+        let stdout = String::from_utf8_lossy(&replay.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&replay.stderr).to_string();
+        let aggregated_output = format!("{stdout}{stderr}");
+        Ok(Ok(ExecToolCallOutput {
+            exit_code: replay.exit_code,
+            stdout: StreamOutput::new(stdout),
+            stderr: StreamOutput::new(stderr),
+            aggregated_output: StreamOutput::new(aggregated_output),
+            duration: replay_start.elapsed(),
+            timed_out: false,
+        }))
+    } else {
+        execute_exec_request(exec_env, stdout_stream, /*after_spawn*/ None)
+            .or_cancel(&cancellation_token)
+            .await
+    };
 
     match exec_result {
         Err(CancelErr::Cancelled) => {
