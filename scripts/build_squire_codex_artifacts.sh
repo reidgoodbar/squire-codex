@@ -6,6 +6,7 @@ version="${VERSION:-}"
 commit="${COMMIT:-}"
 date_utc="${DATE_UTC:-}"
 cargo_profile="${SQUIRE_CODEX_CARGO_PROFILE:-release}"
+runtime_source_dir="${SQUIRE_RUNTIME_SOURCE_DIR:-../squire}"
 
 case "$out_dir" in
   ""|"/"|".")
@@ -18,7 +19,6 @@ detect_os() {
   case "$(uname -s)" in
     Darwin) echo "darwin" ;;
     Linux) echo "linux" ;;
-    MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
     *) echo "unknown" ;;
   esac
 }
@@ -37,8 +37,35 @@ rust_target_for() {
     linux/arm64) echo "aarch64-unknown-linux-gnu" ;;
     darwin/amd64) echo "x86_64-apple-darwin" ;;
     darwin/arm64) echo "aarch64-apple-darwin" ;;
-    windows/amd64) echo "x86_64-pc-windows-msvc" ;;
     *) echo "" ;;
+  esac
+}
+
+build_runtime() {
+  target_os="$1"
+  stage_dir="$2"
+  runtime_source="$runtime_source_dir/shims/squire_hot_api.c"
+
+  if [ ! -f "$runtime_source" ]; then
+    echo "missing Squire runtime source: $runtime_source" >&2
+    exit 1
+  fi
+  if ! command -v cc >/dev/null 2>&1; then
+    echo "cc is required to build the Squire runtime" >&2
+    exit 1
+  fi
+  case "$target_os" in
+    darwin)
+      cc -O3 -DNDEBUG -dynamiclib \
+        -o "$stage_dir/libsquire_runtime.dylib" \
+        "$runtime_source"
+      ;;
+    linux)
+      cc -O3 -DNDEBUG -shared -fPIC \
+        -o "$stage_dir/libsquire_runtime.so" \
+        "$runtime_source" \
+        -ldl -lcrypto
+      ;;
   esac
 }
 
@@ -55,6 +82,51 @@ fi
 if [ -z "$date_utc" ]; then
   date_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 fi
+
+codex_cargo_version="${SQUIRE_CODEX_CARGO_VERSION:-}"
+if [ -z "$codex_cargo_version" ]; then
+  upstream_tag=$(git tag --merged HEAD --list 'rust-v*' --sort=-version:refname | head -n 1)
+  if [ -z "$upstream_tag" ]; then
+    echo "cannot derive Codex version; fetch upstream tags or set SQUIRE_CODEX_CARGO_VERSION" >&2
+    exit 1
+  fi
+  upstream_version=${upstream_tag#rust-v}
+  product_version=$(printf '%s' "${version#v}" | sed 's/[^0-9A-Za-z.-]/-/g')
+  case "$upstream_version" in
+    *+*) codex_cargo_version="${upstream_version}.squire.${product_version}" ;;
+    *) codex_cargo_version="${upstream_version}+squire.${product_version}" ;;
+  esac
+fi
+
+manifest="codex-rs/Cargo.toml"
+lockfile="codex-rs/Cargo.lock"
+manifest_backup=$(mktemp "${TMPDIR:-/tmp}/squire-codex-cargo-toml.XXXXXX")
+lockfile_backup=$(mktemp "${TMPDIR:-/tmp}/squire-codex-cargo-lock.XXXXXX")
+manifest_rewrite=$(mktemp "${TMPDIR:-/tmp}/squire-codex-cargo-rewrite.XXXXXX")
+cp "$manifest" "$manifest_backup"
+cp "$lockfile" "$lockfile_backup"
+restore_workspace_manifests() {
+  cp "$manifest_backup" "$manifest"
+  cp "$lockfile_backup" "$lockfile"
+  rm -f "$manifest_backup" "$lockfile_backup" "$manifest_rewrite"
+}
+trap restore_workspace_manifests EXIT
+trap 'exit 1' HUP INT TERM
+
+if ! awk -v version="$codex_cargo_version" '
+  $0 == "[workspace.package]" { in_workspace_package = 1 }
+  in_workspace_package && !rewritten && $1 == "version" && $2 == "=" {
+    print "version = \"" version "\""
+    rewritten = 1
+    next
+  }
+  { print }
+  END { if (!rewritten) exit 1 }
+' "$manifest" > "$manifest_rewrite"; then
+  echo "could not rewrite Codex workspace version" >&2
+  exit 1
+fi
+mv "$manifest_rewrite" "$manifest"
 
 rm -rf "$out_dir"
 mkdir -p "$out_dir"
@@ -79,23 +151,22 @@ while [ "$#" -gt 0 ]; do
 
   src_binary="codex"
   dest_binary="squire-codex"
-  if [ "$goos" = "windows" ]; then
-    src_binary="codex.exe"
-    dest_binary="squire-codex.exe"
-  fi
-
+  helper_binary="codex-code-mode-host"
   echo "building $name ($rust_target)"
   (
     cd codex-rs
     case "$cargo_profile" in
       release)
         cargo build --release --target "$rust_target" -p codex-cli --bin codex
+        cargo build --release --target "$rust_target" -p codex-code-mode-host --bin codex-code-mode-host
         ;;
       dev|debug)
         cargo build --target "$rust_target" -p codex-cli --bin codex
+        cargo build --target "$rust_target" -p codex-code-mode-host --bin codex-code-mode-host
         ;;
       *)
         cargo build --profile "$cargo_profile" --target "$rust_target" -p codex-cli --bin codex
+        cargo build --profile "$cargo_profile" --target "$rust_target" -p codex-code-mode-host --bin codex-code-mode-host
         ;;
     esac
   )
@@ -110,9 +181,26 @@ while [ "$#" -gt 0 ]; do
     echo "missing built binary: $built" >&2
     exit 1
   fi
+  built_helper="$target_root/$rust_target/$profile_dir/$helper_binary"
+  if [ ! -f "$built_helper" ]; then
+    echo "missing built runtime helper: $built_helper" >&2
+    exit 1
+  fi
 
   cp "$built" "$stage/$dest_binary"
+  cp "$built_helper" "$stage/$helper_binary"
+  build_runtime "$goos" "$stage"
+  if [ -f "$stage/libsquire_runtime.dylib" ] || [ -f "$stage/libsquire_runtime.so" ]; then
+    printf '1\n' > "$stage/SQUIRE_RUNTIME_ABI"
+  fi
   chmod 0755 "$stage/$dest_binary"
+  chmod 0755 "$stage/$helper_binary"
+  if [ -f "$stage/libsquire_runtime.dylib" ]; then
+    chmod 0755 "$stage/libsquire_runtime.dylib"
+  fi
+  if [ -f "$stage/libsquire_runtime.so" ]; then
+    chmod 0755 "$stage/libsquire_runtime.so"
+  fi
   cp SQUIRE_CODEX.md README.md LICENSE NOTICE "$stage/"
 
   cat > "$stage/BUILD_INFO.txt" <<EOF
@@ -124,6 +212,9 @@ target: $goos/$goarch
 rust_target: $rust_target
 profile: $cargo_profile
 binary: $dest_binary
+runtime_helper: $helper_binary
+runtime_abi: 1
+codex_cargo_version: $codex_cargo_version
 EOF
 
   archive="$out_dir/$name.tar.gz"

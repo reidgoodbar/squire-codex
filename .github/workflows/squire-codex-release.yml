@@ -38,19 +38,22 @@ jobs:
             target_os: darwin
             target_arch: arm64
             rust_target: aarch64-apple-darwin
-          - runner: windows-latest
-            target_os: windows
-            target_arch: amd64
-            rust_target: x86_64-pc-windows-msvc
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust_target }}
+
+      - name: Fetch upstream Codex release tags
+        shell: bash
+        run: |
+          git remote add upstream https://github.com/openai/codex.git
+          git fetch --tags upstream
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -75,11 +78,19 @@ jobs:
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
+      - name: Checkout matching Squire runtime
+        uses: actions/checkout@v4
+        with:
+          repository: reidgoodbar/squire
+          ref: ${{ steps.version.outputs.version }}
+          path: squire-runtime
+
       - name: Build release artifact
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
           SQUIRE_CODEX_RELEASE_TARGETS: ${{ matrix.target_os }} ${{ matrix.target_arch }}
+          SQUIRE_RUNTIME_SOURCE_DIR: ${{ github.workspace }}/squire-runtime
         run: scripts/build_squire_codex_artifacts.sh "${RUNNER_TEMP}/squire-codex-release"
 
       - name: Upload release artifact

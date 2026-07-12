@@ -41,7 +41,6 @@ use crate::tools::sandboxing::sandbox_permissions_preserving_denied_reads;
 use crate::tools::sandboxing::with_cached_approval;
 use codex_network_proxy::NetworkProxy;
 use codex_protocol::exec_output::ExecToolCallOutput;
-use codex_protocol::exec_output::StreamOutput;
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::protocol::ReviewDecision;
 use codex_sandboxing::SandboxablePreference;
@@ -50,7 +49,6 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::PathUri;
 use futures::future::BoxFuture;
 use std::collections::HashMap;
-use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Debug)]
@@ -264,22 +262,11 @@ impl ToolRuntime<ShellRequest, ExecToolCallOutput> for ShellRuntime {
             managed_network_for_sandbox_permissions(req.network.as_ref(), sandbox_permissions);
         let env = exec_env_for_sandbox_permissions(&req.env, sandbox_permissions);
         let explicit_env_overrides = req.explicit_env_overrides.clone();
-        let replay_start = Instant::now();
-        if let Some(replay) =
-            crate::exec::squire_bridge::try_replay_shell_command(&req.hook_command, &req.cwd, &env)
+        if let Some(output) =
+            crate::exec::squire_bridge::try_replay_shell_output(&req.hook_command, &req.cwd, &env)
                 .await
         {
-            let stdout = String::from_utf8_lossy(&replay.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&replay.stderr).to_string();
-            let aggregated_output = format!("{stdout}{stderr}");
-            return Ok(ExecToolCallOutput {
-                exit_code: replay.exit_code,
-                stdout: StreamOutput::new(stdout),
-                stderr: StreamOutput::new(stderr),
-                aggregated_output: StreamOutput::new(aggregated_output),
-                duration: replay_start.elapsed(),
-                timed_out: false,
-            });
+            return Ok(output);
         }
         #[cfg(unix)]
         let (env, runtime_path_prepends) = {

@@ -27,4 +27,9 @@ elif [ -z "${CARGO_HOME:-}" ] && [ ! -w "${HOME}/.cargo" ]; then
 fi
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${SQUIRE_CODEX_CARGO_TARGET_DIR:-${TMPDIR:-/tmp}/squire-codex-target}}"
 cargo fmt --check -p codex-core
-cargo test -p codex-core squire_bridge --lib
+cd ..
+if ! command -v just >/dev/null 2>&1 || ! cargo nextest --version >/dev/null 2>&1; then
+  echo "squire-codex: install just and cargo-nextest before pushing" >&2
+  exit 1
+fi
+just test -p codex-core squire_codex_bridge

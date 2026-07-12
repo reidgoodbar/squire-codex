@@ -26,6 +26,12 @@ jobs:
         with:
           workspaces: codex-rs
 
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
       - name: Check portable Squire bridge paths
         run: |
           test -f vendor/squire/crates/squire-codex-adapter/src/exec_bridge.rs
@@ -38,9 +44,12 @@ jobs:
         run: cargo fmt --check -p codex-core
 
       - name: Test bridge
-        working-directory: codex-rs
-        run: cargo test -p codex-core squire_bridge --lib
+        run: just test -p codex-core squire_codex_bridge
 
       - name: Build CLI
         working-directory: codex-rs
         run: cargo build -p codex-cli --bin codex
+
+      - name: Build required runtime helper
+        working-directory: codex-rs
+        run: cargo build -p codex-code-mode-host --bin codex-code-mode-host
