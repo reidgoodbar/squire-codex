@@ -69,6 +69,28 @@ build_runtime() {
   esac
 }
 
+strip_staged_binary() {
+  target_os="$1"
+  binary_path="$2"
+  case "$target_os" in
+    darwin)
+      if ! command -v strip >/dev/null 2>&1; then
+        echo "strip is required for macOS release artifacts" >&2
+        exit 1
+      fi
+      strip -S -x "$binary_path"
+      ;;
+    linux)
+      strip_bin="${STRIP:-strip}"
+      if ! command -v "$strip_bin" >/dev/null 2>&1; then
+        echo "$strip_bin is required for Linux release artifacts" >&2
+        exit 1
+      fi
+      "$strip_bin" --strip-debug --strip-unneeded "$binary_path"
+      ;;
+  esac
+}
+
 if [ -z "$version" ]; then
   if git describe --tags --exact-match >/dev/null 2>&1; then
     version=$(git describe --tags --exact-match)
@@ -98,7 +120,7 @@ if [ -z "$codex_cargo_version" ]; then
   esac
 fi
 
-manifest="codex-rs/Cargo.toml"
+manifest="codex-rs/cli/Cargo.toml"
 lockfile="codex-rs/Cargo.lock"
 manifest_backup=$(mktemp "${TMPDIR:-/tmp}/squire-codex-cargo-toml.XXXXXX")
 lockfile_backup=$(mktemp "${TMPDIR:-/tmp}/squire-codex-cargo-lock.XXXXXX")
@@ -114,16 +136,17 @@ trap restore_workspace_manifests EXIT
 trap 'exit 1' HUP INT TERM
 
 if ! awk -v version="$codex_cargo_version" '
-  $0 == "[workspace.package]" { in_workspace_package = 1 }
-  in_workspace_package && !rewritten && $1 == "version" && $2 == "=" {
+  $0 == "[package]" { in_package = 1 }
+  in_package && !rewritten && $1 == "version.workspace" && $2 == "=" {
     print "version = \"" version "\""
     rewritten = 1
     next
   }
+  in_package && $0 ~ /^\[/ && $0 != "[package]" { in_package = 0 }
   { print }
   END { if (!rewritten) exit 1 }
 ' "$manifest" > "$manifest_rewrite"; then
-  echo "could not rewrite Codex workspace version" >&2
+  echo "could not rewrite Codex CLI version" >&2
   exit 1
 fi
 mv "$manifest_rewrite" "$manifest"
@@ -189,6 +212,12 @@ while [ "$#" -gt 0 ]; do
 
   cp "$built" "$stage/$dest_binary"
   cp "$built_helper" "$stage/$helper_binary"
+  stripped="false"
+  if [ "$cargo_profile" = "release" ]; then
+    strip_staged_binary "$goos" "$stage/$dest_binary"
+    strip_staged_binary "$goos" "$stage/$helper_binary"
+    stripped="true"
+  fi
   build_runtime "$goos" "$stage"
   if [ -f "$stage/libsquire_runtime.dylib" ] || [ -f "$stage/libsquire_runtime.so" ]; then
     printf '1\n' > "$stage/SQUIRE_RUNTIME_ABI"
@@ -211,6 +240,7 @@ date: $date_utc
 target: $goos/$goarch
 rust_target: $rust_target
 profile: $cargo_profile
+stripped: $stripped
 binary: $dest_binary
 runtime_helper: $helper_binary
 runtime_abi: 1

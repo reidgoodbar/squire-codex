@@ -96,6 +96,39 @@ jobs:
           SQUIRE_RUNTIME_SOURCE_DIR: ${{ github.workspace }}/squire-runtime
         run: scripts/build_squire_codex_artifacts.sh "${RUNNER_TEMP}/squire-codex-release"
 
+      - name: Verify release artifact
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TARGET_OS: ${{ matrix.target_os }}
+          TARGET_ARCH: ${{ matrix.target_arch }}
+        run: |
+          set -euo pipefail
+          release_dir="${RUNNER_TEMP}/squire-codex-release"
+          archive="${release_dir}/squire-codex_${VERSION}_${TARGET_OS}_${TARGET_ARCH}.tar.gz"
+          verify_dir="${RUNNER_TEMP}/squire-codex-verify"
+          mkdir -p "${verify_dir}"
+          tar -xzf "${archive}" -C "${verify_dir}" --strip-components=1
+          (
+            cd "${release_dir}"
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum -c SHA256SUMS
+            else
+              shasum -a 256 -c SHA256SUMS
+            fi
+          )
+          grep -qx 'profile: release' "${verify_dir}/BUILD_INFO.txt"
+          grep -qx 'stripped: true' "${verify_dir}/BUILD_INFO.txt"
+          test -x "${verify_dir}/squire-codex"
+          test -x "${verify_dir}/codex-code-mode-host"
+          case "${TARGET_OS}" in
+            darwin) runtime_library="libsquire_runtime.dylib" ;;
+            linux) runtime_library="libsquire_runtime.so" ;;
+            *) exit 2 ;;
+          esac
+          test -f "${verify_dir}/${runtime_library}"
+          "${verify_dir}/squire-codex" --version | grep -F '+squire.'
+
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
