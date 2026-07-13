@@ -30,11 +30,11 @@ jobs:
             target_os: linux
             target_arch: arm64
             rust_target: aarch64-unknown-linux-gnu
-          - runner: macos-13
+          - runner: macos-15-intel
             target_os: darwin
             target_arch: amd64
             rust_target: x86_64-apple-darwin
-          - runner: macos-14
+          - runner: macos-15
             target_os: darwin
             target_arch: arm64
             rust_target: aarch64-apple-darwin
