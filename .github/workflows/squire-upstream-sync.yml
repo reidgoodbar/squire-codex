@@ -75,21 +75,27 @@ jobs:
         if: steps.merge.outputs.has_changes == 'true'
         run: git push --force-with-lease origin squire/upstream-sync
 
-      - name: Open or update sync PR
+      - name: Ensure sync PR
         if: steps.merge.outputs.has_changes == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.SQUIRE_SYNC_TOKEN || github.token }}
         run: |
           set -euo pipefail
           existing="$(gh pr list --head squire/upstream-sync --base main --json number --jq '.[0].number // empty')"
           if [ -n "$existing" ]; then
-            gh pr edit "$existing" \
-              --title "Sync upstream OpenAI Codex" \
-              --body "Automated merge of openai/codex main into the Squire Codex fork. Focused Squire bridge checks passed."
-          else
-            gh pr create \
+            echo "Sync PR already open: https://github.com/${GITHUB_REPOSITORY}/pull/${existing}"
+            exit 0
+          fi
+
+          if output="$(gh pr create \
               --base main \
               --head squire/upstream-sync \
               --title "Sync upstream OpenAI Codex" \
-              --body "Automated merge of openai/codex main into the Squire Codex fork. Focused Squire bridge checks passed."
+              --body "Automated merge of openai/codex main into the Squire Codex fork. Focused Squire bridge checks passed." 2>&1)"; then
+            echo "$output"
+            exit 0
           fi
+
+          compare_url="https://github.com/${GITHUB_REPOSITORY}/compare/main...squire/upstream-sync?expand=1"
+          echo "$output" >&2
+          echo "::warning title=Sync branch ready; PR creation blocked::Create the PR at ${compare_url}, or configure a fine-grained SQUIRE_SYNC_TOKEN repository secret."

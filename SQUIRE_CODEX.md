@@ -85,9 +85,12 @@ version for a controlled release.
 ## Upstream Maintenance
 
 The scheduled `Squire Upstream Sync` workflow fetches `openai/codex`, merges
-`upstream/main` into a sync branch, runs focused bridge checks, and opens or
-updates a PR against this fork's main branch. Merge conflicts are never hidden
-by force-merging into the release branch.
+`upstream/main` into a sync branch, runs focused bridge checks, and opens a PR
+against this fork's main branch. An existing PR follows later branch updates
+without another API write. If repository policy blocks workflow-created PRs,
+the run publishes the exact compare link; a fine-grained `SQUIRE_SYNC_TOKEN`
+secret enables unattended creation. Merge conflicts are never hidden by
+force-merging into the release branch.
 
 For local work:
 
